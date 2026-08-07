@@ -1,0 +1,64 @@
+@import "tailwindcss";
+
+/* ── DARK MODE (default) ───────────────────────────────────── */
+:root,
+[data-theme="dark"] {
+  --bg: #0f0f0f;
+  --surface: #1a1a1a;
+  --surface2: #242424;
+  --border: #2e2e2e;
+  --accent: #f0f0f0;
+  --accent-hover: #cccccc;
+  --text: #f0f0f0;
+  --text-muted: #666666;
+  --success: #4ade80;
+  --error: #f87171;
+}
+
+/* ── LIGHT MODE ─────────────────────────────────────────────── */
+[data-theme="light"] {
+  --bg: #ffffff;
+  --surface: #f7f7f7;
+  --surface2: #efefef;
+  --border: #e2e2e2;
+  --accent: #111111;
+  --accent-hover: #333333;
+  --text: #111111;
+  --text-muted: #888888;
+  --success: #16a34a;
+  --error: #dc2626;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  margin: 0;
+  padding: 0;
+}
+
+::selection { background: var(--text); color: var(--bg); }
+
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: var(--surface); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes shimmer {
+  0%   { transform: translateX(-150%); }
+  100% { transform: translateX(350%); }
+}
+
+.session-item:hover .session-delete-btn {
+  opacity: 1 !important;
+}
+.session-delete-btn:hover {
+  background: var(--border) !important;
+  color: var(--text) !important;
+}
