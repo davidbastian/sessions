@@ -27,7 +27,7 @@ export interface ModelConfig {
   supportsCharacterReplace?: boolean; // Seedance: replace character in a reference video
   apiModel?: string;
   usesOmniEndpoint?: boolean;
-  apiProvider?: "piapi" | "piapi-image"; // piapi = video via PiAPI tasks; piapi-image = image via PiAPI OpenAI-compat
+  apiProvider?: "piapi" | "piapi-image" | "fal-image"; // piapi = video via PiAPI tasks; piapi-image = image via PiAPI OpenAI-compat; fal-image = image via fal.ai
   piAPIVersion?: string;          // version string for PiAPI (e.g. "3.0", "o1")
   piAPITaskType?: string;         // task_type for PiAPI request
   resolutions?: string[];         // e.g. ["720p", "1080p"]
@@ -89,6 +89,28 @@ export const MODELS: ModelConfig[] = [
     supportsEndFrame: false,
     apiModel: "gpt-image-2-preview",
     apiProvider: "piapi-image",
+    enabled: true,
+  },
+
+  {
+    id: "flux-kontext",
+    name: "FLUX Kontext",
+    provider: "Black Forest Labs / fal.ai",
+    type: "image",
+    description: "FLUX.1 Kontext Max — purpose-built for style transfer & multi-image editing",
+    aspectRatios: [
+      { label: "16:9", value: "16:9", width: 1920, height: 1080 },
+      { label: "9:16", value: "9:16", width: 1080, height: 1920 },
+      { label: "1:1",  value: "1:1",  width: 1024, height: 1024 },
+      { label: "4:3",  value: "4:3",  width: 1024, height: 768 },
+      { label: "3:4",  value: "3:4",  width: 768,  height: 1024 },
+      { label: "21:9", value: "21:9", width: 2048, height: 878 },
+    ],
+    supportsImageRef: true,
+    supportsStartEndFrame: false,
+    supportsEndFrame: false,
+    apiModel: "fal-ai/flux-pro/kontext/max/multi",
+    apiProvider: "fal-image",
     enabled: true,
   },
 

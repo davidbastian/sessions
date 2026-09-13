@@ -129,6 +129,12 @@ export default function Home() {
   const [characterReplace, setCharacterReplace] = useState(false);
   const [referenceVideoUrl, setReferenceVideoUrl] = useState("");
   const [sidebarWidth, setSidebarWidth] = useState(272);
+  /* The drag's mouseup closure captures the width from the render it started
+     in, so the ref is what knows the final one when it comes time to save. */
+  const sidebarWidthRef = useRef(272);
+  /* Flips true once the saved theme and width have been read back, so nothing
+     is written to storage before it has been read from it. */
+  const restored = useRef(false);
 
   // Dropdowns
   const [showModelDropdown, setShowModelDropdown] = useState(false);
@@ -379,10 +385,41 @@ export default function Home() {
   // Keep hoverSlotRef in sync so the paste listener always sees the latest slot
   useEffect(() => { hoverSlotRef.current = hoverSlot; }, [hoverSlot]);
 
-  // Apply theme
+  // Apply theme, and remember it. A light mode you have to choose again on every
+  // reload is not really a light mode.
+  //
+  // The write waits for the restore below to have run: both effects fire on
+  // mount, this one first, and without the guard it would save the default dark
+  // over the light the last visit chose, a moment before the restore reads it.
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
+    if (!restored.current) return;
+    try { localStorage.setItem("session-theme", theme); } catch {}
   }, [theme]);
+
+  // ── Restore what the last visit chose, and fit the sidebar to the screen ────
+  //
+  // Runs once, after mount rather than in the initial state, because the server
+  // renders this too and localStorage does not exist there.
+  //
+  // The sidebar is a third of an iPad in portrait, so on a narrow screen it
+  // starts collapsed to its icon width — still there, still draggable back out,
+  // but not eating the canvas before you have generated anything. A remembered
+  // width wins over both: someone who dragged it has already decided.
+  useEffect(() => {
+    let saved: string | null = null;
+    try {
+      saved = localStorage.getItem("session-sidebar");
+      const t = localStorage.getItem("session-theme");
+      if (t === "light" || t === "dark") setTheme(t);
+    } catch {}
+    restored.current = true;
+
+    if (saved) { setSidebarWidth(Number(saved) || 272); return; }
+    if (window.innerWidth < 1100) setSidebarWidth(76);
+  }, []);
+
+  useEffect(() => { sidebarWidthRef.current = sidebarWidth; }, [sidebarWidth]);
 
   // Clear unseen badge when Assets section is opened
   useEffect(() => {
@@ -1258,6 +1295,9 @@ export default function Home() {
             const onUp = () => {
               window.removeEventListener("mousemove", onMove);
               window.removeEventListener("mouseup", onUp);
+              /* Remember it: a width you set by hand is a decision, and it
+                 outranks the screen-size default on the next visit. */
+              try { localStorage.setItem("session-sidebar", String(sidebarWidthRef.current)); } catch {}
             };
             window.addEventListener("mousemove", onMove);
             window.addEventListener("mouseup", onUp);
@@ -1407,7 +1447,9 @@ export default function Home() {
 
                       {/* Grid for this day */}
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 8 }}>
-                        {byDay[day].map(({ img, gen, type }, i) => (
+                        {/* session comes along too: the delete button below needs
+                            to know which session's folder the file lives in. */}
+                        {byDay[day].map(({ img, gen, type, session }, i) => (
                           <div key={i} style={{ position: "relative", borderRadius: 12, overflow: "hidden", cursor: "pointer" }}
                             onClick={() => {
                               const idx = filtered.findIndex(a => a.img === img);

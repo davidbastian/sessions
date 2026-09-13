@@ -121,6 +121,90 @@ Do not change what is in the content image. Only change how it looks, to match t
     return NextResponse.json({ images });
   }
 
+  // ── fal.ai image path (FLUX Kontext — multi-image editing/style transfer) ──
+  if (modelConfig.apiProvider === "fal-image") {
+    const falKey = process.env.FAL_API_KEY;
+    if (!falKey) return NextResponse.json({ error: "FAL_API_KEY not set" }, { status: 500 });
+
+    const modelName = modelConfig.apiModel ?? "fal-ai/flux-pro/kontext/max/multi";
+    const TIMEOUT_MS = 45000;
+
+    // Upload to fal's CDN storage first — embedding raw base64 in the JSON body is
+    // unreliable for real photo-sized files, so mirror what fal's own client SDKs do.
+    async function uploadToFal(file: File): Promise<string> {
+      const initRes = await fetch("https://rest.alpha.fal.ai/storage/upload/initiate", {
+        method: "POST",
+        headers: { "Authorization": `Key ${falKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ content_type: file.type || "image/jpeg", file_name: file.name || "upload.jpg" }),
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+      if (!initRes.ok) {
+        const body = await initRes.text().catch(() => "");
+        throw new Error(`fal.ai upload-initiate failed (${initRes.status}): ${body.slice(0, 300)}`);
+      }
+      const { upload_url, file_url } = await initRes.json() as { upload_url: string; file_url: string };
+
+      const buf = Buffer.from(await file.arrayBuffer());
+      const putRes = await fetch(upload_url, {
+        method: "PUT",
+        headers: { "Content-Type": file.type || "image/jpeg" },
+        body: buf,
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+      if (!putRes.ok) throw new Error(`fal.ai upload-put failed: ${putRes.status}`);
+
+      return file_url;
+    }
+
+    try {
+      const imageUrls: string[] = [];
+      let falPrompt = prompt || "";
+
+      if (genType === "style-transfer" && styleImage && contentImage) {
+        imageUrls.push(await uploadToFal(styleImage));
+        imageUrls.push(await uploadToFal(contentImage));
+        falPrompt = `Restyle image 2 using the visual style of image 1.
+
+Take the exact subject, pose, framing, and composition from image 2, and re-render it entirely in the art direction, color palette, lighting, texture, and aesthetic of image 1.
+
+Output ONE single image only — the restyled version of image 2. Do NOT show image 1 anywhere in the output, do NOT place the two images side by side or in a collage/grid, and do NOT crop or split the canvas. The result must be a single standalone image with the same framing as image 2.${prompt?.trim() ? `\n\nAdditional direction: "${prompt.trim()}"` : ""}`;
+      } else if (imageRef) {
+        imageUrls.push(await uploadToFal(imageRef));
+        falPrompt = prompt || "Edit the image";
+      } else {
+        return NextResponse.json({ error: "FLUX Kontext requires at least one reference image — use Style Transfer, or attach a Ref image in Image Prompt mode." }, { status: 400 });
+      }
+
+      const res = await fetch(`https://fal.run/${modelName}`, {
+        method: "POST",
+        headers: { "Authorization": `Key ${falKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: falPrompt,
+          image_urls: imageUrls,
+          aspect_ratio: aspectRatio || "1:1",
+          num_images: 1,
+          output_format: "jpeg",
+        }),
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+
+      const text = await res.text();
+      let data: Record<string, unknown>;
+      try { data = JSON.parse(text); } catch { return NextResponse.json({ error: `fal.ai non-JSON: ${text.slice(0, 200)}` }, { status: 500 }); }
+      if (!res.ok) return NextResponse.json({ error: `fal.ai error ${res.status}: ${JSON.stringify(data).slice(0, 300)}` }, { status: 500 });
+
+      console.log("[fal-image] response:", JSON.stringify(data).slice(0, 300));
+      const images = ((data.images ?? []) as Array<{ url?: string }>)
+        .map(d => d.url ?? "")
+        .filter(Boolean);
+      return NextResponse.json({ images });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "fal.ai request failed";
+      console.warn("[fal-image] error:", message);
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
+  }
+
   // ── Gemini path — direct via Google AI, or via OpenRouter — explicit toggle ─
   const apiKey = process.env.GOOGLE_AI_API_KEY;
   const openRouterKey = process.env.OPENROUTER_API_KEY;

@@ -51,6 +51,13 @@ const KEY_DEFS = [
     hint: "Alternative to Google AI key — routes Nano Banana image generation through OpenRouter when set",
     docsUrl: "https://openrouter.ai/settings/keys",
   },
+  {
+    id: "FAL_API_KEY",
+    label: "fal.ai API Key",
+    provider: "fal.ai",
+    hint: "Used for FLUX Kontext — style transfer & multi-image editing",
+    docsUrl: "https://fal.ai/dashboard/keys",
+  },
 ];
 
 // ── Image provider toggle ────────────────────────────────────────────────────

@@ -40,9 +40,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# generated media (local output)
+# generated work — the app writes every session and timeline in here, and it is
+# hundreds of megabytes of personal images. The repo is the tool, not the output.
 /public/sessions/
 /public/timelines/
-
-CLAUDE.md
-AGENTS.md
