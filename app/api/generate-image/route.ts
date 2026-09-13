@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextRequest, NextResponse } from "next/server";
 import { getModelById } from "@/config/models";
+import { say } from "@/lib/skills";
 
 export async function POST(req: NextRequest) {
   const formData = await req.formData();
@@ -63,11 +64,10 @@ export async function POST(req: NextRequest) {
       // ── Style transfer → /v1/images/edits with two reference images ────────
       // gpt-image-2's edit endpoint accepts multiple images under the same "image"
       // field — first is treated as style, second as content to preserve.
-      const stylePrompt = `The first image is the STYLE reference. The second image is the CONTENT image.
-
-Re-render the content image exactly as it is — same subject, pose, framing, composition, and every detail — but entirely in the visual style of the first image: its art direction, color palette, lighting, texture, and overall aesthetic.
-
-Do not change what is in the content image. Only change how it looks, to match the style image.${prompt?.trim() ? `\n\nAdditional direction: "${prompt.trim()}"` : ""}`;
+      const stylePrompt = [
+        say("style-transfer", "Instruction"),
+        prompt?.trim() ? say("style-transfer", "Direction", { direction: prompt.trim() }) : "",
+      ].filter(Boolean).join("\n\n");
 
       const fd = new FormData();
       fd.append("model", modelName);
@@ -163,11 +163,11 @@ Do not change what is in the content image. Only change how it looks, to match t
       if (genType === "style-transfer" && styleImage && contentImage) {
         imageUrls.push(await uploadToFal(styleImage));
         imageUrls.push(await uploadToFal(contentImage));
-        falPrompt = `Restyle image 2 using the visual style of image 1.
-
-Take the exact subject, pose, framing, and composition from image 2, and re-render it entirely in the art direction, color palette, lighting, texture, and aesthetic of image 1.
-
-Output ONE single image only — the restyled version of image 2. Do NOT show image 1 anywhere in the output, do NOT place the two images side by side or in a collage/grid, and do NOT crop or split the canvas. The result must be a single standalone image with the same framing as image 2.${prompt?.trim() ? `\n\nAdditional direction: "${prompt.trim()}"` : ""}`;
+        falPrompt = [
+          say("style-transfer", "Instruction"),
+          say("style-transfer", "Single output"),
+          prompt?.trim() ? say("style-transfer", "Direction", { direction: prompt.trim() }) : "",
+        ].filter(Boolean).join("\n\n");
       } else if (imageRef) {
         imageUrls.push(await uploadToFal(imageRef));
         falPrompt = prompt || "Edit the image";
@@ -281,17 +281,15 @@ Output ONE single image only — the restyled version of image 2. Do NOT show im
     // Describe screen image for prompt mode
     let screenDescription = "";
     if (screenImage && genType === "prompt") {
-      screenDescription = await describeImage(screenImage,
-        "Describe this screen/UI content precisely for a visual artist who needs to reproduce it on a device screen in a photograph: what app or website is shown, its exact layout, colors, typography, text content, icons, buttons, images, and overall aesthetic. Be specific and detailed."
-      );
+      screenDescription = await describeImage(screenImage, say("image-prompt", "Screen: describe"));
     }
 
     function styleTransferPrompt(userTarget: string | undefined) {
-      return `Image 1 is the STYLE reference. Image 2 is the CONTENT image.
-
-Re-render image 2 exactly as it is — same subject, pose, framing, composition, and every detail — but entirely in the visual style of image 1: its art direction, color palette, lighting, texture, and overall aesthetic.
-
-Do not change what is in image 2. Only change how it looks, to match image 1's style.${userTarget ? `\n\nAdditional direction from the user: "${userTarget}"` : ""}${aspectRatio ? `\nGenerate in ${aspectRatio} aspect ratio.` : ""}`;
+      return [
+        say("style-transfer", "Instruction"),
+        userTarget ? say("style-transfer", "Direction", { direction: userTarget }) : "",
+        aspectRatio ? say("image-prompt", "Ratio", { aspectRatio }) : "",
+      ].filter(Boolean).join("\n\n");
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -327,23 +325,12 @@ Do not change what is in image 2. Only change how it looks, to match image 1's s
 
       const timeLabel = `${momentSeconds} second${momentSeconds !== 1 ? "s" : ""} ${momentDirection}`;
       const userContext = prompt?.trim();
-      const contextBlock = userContext ? `\nAdditional context from the user: "${userContext}"` : "";
 
-      const momentPrompt = `[MOMENT GENERATION]
-The attached image is a captured frame — a single frozen moment in time (T=0).${contextBlock}
-
-Generate a realistic, photorealistic image showing what this scene looked like exactly ${timeLabel} this captured moment.
-
-Critical requirements:
-- Keep every subject (people, athletes, animals, objects) visually IDENTICAL — same faces, clothing, body type, colors, and physical characteristics. Do not change how anyone looks.
-- Maintain the exact same location, background, environment, and camera angle/framing.
-- Maintain consistent lighting direction, quality, and color temperature.
-- Show the PHYSICALLY REALISTIC action that would naturally occur ${timeLabel} this moment — based on the physics and narrative logic of what is shown in the image.
-  ${momentDirection === "before"
-    ? "This means: show the lead-up, anticipation, or preparation that would precede this moment."
-    : "This means: show the natural physical consequence, continuation, or aftermath of this moment."}
-- The result should feel indistinguishable from a real adjacent frame of the same video or photo sequence.
-${aspectRatio ? `- Generate in ${aspectRatio} aspect ratio.` : ""}`;
+      const momentPrompt = say("moment", "Instruction", {
+        timeLabel,
+        context: userContext ? `\nAdditional context from the user: "${userContext}"` : "",
+        lead: say("moment", momentDirection === "before" ? "Before" : "After"),
+      }) + (aspectRatio ? `\n${say("image-prompt", "Ratio", { aspectRatio })}` : "");
 
       parts.push({ text: momentPrompt });
 
@@ -356,27 +343,19 @@ ${aspectRatio ? `- Generate in ${aspectRatio} aspect ratio.` : ""}`;
       ).join(", ");
 
       const userInstruction = prompt?.trim();
-      const transferPrompt = `[CHARACTER TRANSFER]
-${sceneImage
-  ? "The first attached image is the SCENE REFERENCE — preserve its composition, background, lighting direction, color palette, atmosphere, and overall aesthetic exactly. Do not change anything that isn't a character being replaced."
-  : "Generate a photorealistic scene based on the user instruction below."}
-${characterImages.length > 0
-  ? `Character reference images: ${charLabels}
-For each character reference, extract and faithfully reproduce: exact face shape, skin tone, eyes, hair color/style, and any distinctive physical features. The replacement must look like the actual person in the reference photo.${keepClothes ? " Also reproduce their clothing exactly as shown in their reference photo — same garments, colors, and style." : ""}${keepPose ? " Also reproduce their body pose exactly as shown in their reference photo." : ""}`
-  : ""}
-
-User instruction: "${userInstruction || "Replace the main character(s) with the provided character reference(s)."}"
-
-Requirements:
-- Match the scene reference's exact art style and rendering — whether photorealistic, illustrated, painted, anime, or otherwise. The output must look consistent with the scene's aesthetic, not forced into photorealism if the scene isn't photorealistic.
-- ${keepPose
-    ? "Keep each character's ORIGINAL pose and body position from their reference photo — do not change it to match the scene's pose. Adapt the scene composition around the character's actual pose instead."
-    : "Give the character the pose described in the user instruction above. If the user instruction doesn't describe a pose, match the scene's original pose and body position instead."}
-- ${keepClothes
-    ? "Keep each character's ORIGINAL clothing from their reference photo — do not change it to match the scene's clothing style."
-    : "Match the scene's original clothing style for each replaced character."}
-- Keep the original lighting hitting each character from the same direction and with the same quality as the scene
-- Do not alter the background, environment, or any non-character elements${aspectRatio ? `\n- Generate in ${aspectRatio} aspect ratio` : ""}`;
+      const transferPrompt = say("character-transfer", "Instruction", {
+        sceneLine: say("character-transfer", sceneImage ? "Scene: given" : "Scene: none"),
+        charactersLine: characterImages.length
+          ? [
+              say("character-transfer", "Characters", { labels: charLabels }),
+              keepClothes ? say("character-transfer", "Clothes: keep") : "",
+              keepPose ? say("character-transfer", "Pose: keep") : "",
+            ].filter(Boolean).join(" ")
+          : "",
+        userInstruction: userInstruction || "Replace the main character(s) with the provided character reference(s).",
+        poseRule: say("character-transfer", keepPose ? "Pose: keep" : "Pose: scene"),
+        clothesRule: say("character-transfer", keepClothes ? "Clothes: keep" : "Clothes: scene"),
+      }) + (aspectRatio ? `\n- Generate in ${aspectRatio} aspect ratio` : "");
 
       // Text first, then images
       parts.push({ text: transferPrompt });
@@ -403,11 +382,11 @@ Requirements:
       const effLabel = effectImage ? (total > 1 ? `image ${effIdx}` : "the attached image") : null;
 
       let fullPrompt = aspectRatio
-        ? `${prompt}\n\n[Generate in ${aspectRatio} aspect ratio]`
+        ? `${prompt}\n\n${say("image-prompt", "Ratio", { aspectRatio })}`
         : prompt;
 
       if (imageRef) {
-        fullPrompt += `\n\n[STYLE REFERENCE (${imgLabel}): Match its art direction, lighting setup, color palette, mood, texture, and overall aesthetic in the generated image. Treat it as the definitive visual reference for how the output should look and feel.]`;
+        fullPrompt += `\n\n${say("image-prompt", "Reference", { label: imgLabel ?? "" })}`;
       }
 
       if (effectImage) {
@@ -417,21 +396,12 @@ Requirements:
           "specific", "area", "element", "part", "region"];
         const hasTarget = targetKeywords.some(kw => userPromptLower.includes(kw));
 
-        if (hasTarget) {
-          fullPrompt += `\n\n[EFFECT IMAGE (${effLabel}): Carefully analyze the visual effect or treatment shown — color grade, lighting, glow, particles, smoke, fog, grain, blur, vignette, filter, or texture overlay.
-TARGETING: Apply this effect ONLY to the subjects/areas referenced in the user prompt. Leave everything else natural and unchanged. Integrate realistically so it looks like it belongs.]`;
-        } else {
-          fullPrompt += `\n\n[EFFECT IMAGE (${effLabel}): Carefully analyze the visual effect or treatment shown — color grade, lighting, glow, particles, smoke, fog, grain, blur, vignette, filter, or texture overlay.
-Apply this exact effect across the ENTIRE generated image at the same type and intensity shown. Integrate it naturally so it looks like it belongs in the scene.]`;
-        }
+        fullPrompt += `\n\n${say("image-prompt", hasTarget ? "Effect: targeted" : "Effect: everywhere", { label: effLabel ?? "" })}`;
       }
 
       // Screen image: use text description (avoids content-blocking on UI/logo screenshots)
       if (screenDescription) {
-        fullPrompt += `\n\n[DEVICE SCREEN: The screen of the device (phone, tablet, monitor, TV, etc.) must display the following UI content exactly. Render it faithfully with realistic screen glow, lighting, and any natural reflections appropriate to the environment. Do NOT use this as a style guide for the overall scene — apply it only to the device screen.
-
-Screen content:
-${screenDescription}]`;
+        fullPrompt += `\n\n${say("image-prompt", "Screen", { screen: screenDescription })}`;
       }
 
       // Text first, then images — Gemini works best with this order
@@ -520,24 +490,19 @@ ${screenDescription}]`;
     if (genResult.images.length === 0 && genType === "style-transfer") {
       console.warn(`[generate-image] Direct style-transfer failed (${genResult.lastError}) — falling back to description-based generation`);
       const [styleDescription, contentDescription] = await Promise.all([
-        describeImage(styleImage!,
-          "Describe the visual style of this image in detail for an artist: art style (e.g. anime, photorealistic, oil painting, illustration), color palette, lighting quality and direction, shadows, texture, mood, atmosphere, and overall aesthetic. Focus purely on HOW it looks, not what it depicts."
-        ),
-        describeImage(contentImage!,
-          "Describe the content and composition of this image precisely: subjects (people, objects, animals), their appearance, poses, positions, clothing, expressions, the background/environment, camera angle, and framing. Be specific and visual."
-        ),
+        describeImage(styleImage!, say("refusals", "Describe: style")),
+        describeImage(contentImage!, say("refusals", "Describe: content")),
       ]);
 
       const userTarget = prompt?.trim();
-      const fallbackPrompt = `Generate a new image that takes the visual style described below and applies it to the content described below.
-
-STYLE (apply this aesthetic):
-${styleDescription || "Use the art direction from the style reference."}
-
-CONTENT (preserve this subject, pose, and composition):
-${contentDescription || "Use the subject from the content reference."}
-${userTarget ? `\nTARGETING INSTRUCTION: "${userTarget}" — if it refers to a specific area/subject, apply the style only there; otherwise apply it globally.` : ""}
-${aspectRatio ? `Generate in ${aspectRatio} aspect ratio.` : ""}`;
+      const fallbackPrompt = [
+        say("refusals", "From words", {
+          style: styleDescription || "Use the art direction from the style reference.",
+          content: contentDescription || "Use the subject from the content reference.",
+        }),
+        userTarget ? `TARGETING INSTRUCTION: "${userTarget}" — if it refers to a specific area/subject, apply the style only there; otherwise apply it globally.` : "",
+        aspectRatio ? say("image-prompt", "Ratio", { aspectRatio }) : "",
+      ].filter(Boolean).join("\n\n");
 
       genResult = await attemptGenerate([{ text: fallbackPrompt }]);
     }

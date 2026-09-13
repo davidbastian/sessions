@@ -49,23 +49,41 @@ simply says so when you ask it for something.
 The bar changes shape rather than the app changing page. Pick a mode and the
 slots it needs appear; everything else stays where it was.
 
-| Mode | What it takes |
-| --- | --- |
-| **Image prompt** | Words, and optionally three slots that change what the words mean: **Ref** for the look, **Effect** for a treatment to apply, **Screen** for what a device in the picture is displaying. |
-| **Style transfer** | Two pictures. The second keeps its subject, pose and framing; the first lends everything about how it looks. |
-| **Characters** | A scene, and up to five faces to put in it. Two switches decide whether each person keeps their own clothes and their own pose. |
-| **Moment** | One frame and a number of seconds — what the same camera saw two seconds before, or five after. |
-| **Animate** | A start frame, an end frame, a duration and a resolution. Kling or Seedance draws the seconds in between. |
+| Mode | What it takes | What comes back |
+| --- | --- | --- |
+| **Image prompt** | Words. Optionally **Ref** for the look, **Effect** for a treatment, **Screen** for what a device in the picture is showing. | One image, in the ratio you set. |
+| **Style transfer** | Two pictures: one lends its look, one keeps its subject, pose and framing. | The second picture, re-rendered in the first one's style. |
+| **Characters** | A scene, and up to five faces. Two switches: keep their clothes, keep their pose. | The same scene with different people in it, in the scene's own style. |
+| **Moment** | One frame, before or after, and how many seconds. | The adjacent frame — the lead-up, or the consequence. |
+| **Animate** | A start frame, an end frame if you have one, a duration and a resolution. | A clip, with the price worked out before you press. |
 
-A mode is not a switch on the model, it is a paragraph written for it. Those
-paragraphs live in `app/api/generate-image/route.ts` and are the part worth
-reading: Moment works because the instruction lists what must *not* change —
-the same faces, the same room, the same light — before it asks for what happens
-next.
+## Every mode is a skill
+
+A mode is not a switch on the model, it is a paragraph written for it — and
+those paragraphs are the product. Moment works because the instruction lists
+what must *not* change (the same faces, the same room, the same light) before it
+asks for what happens next.
+
+They are not template literals in a route. Each generation type is a folder with
+a `SKILL.md` in it: frontmatter saying what it takes and returns, then one
+section per thing the app might need to say, with `{{placeholders}}` the code
+fills in. `lib/skills.ts` reads them off disk when the server starts.
+
+```
+skills/
+  image-prompt/SKILL.md        ratio · reference · effect · screen
+  style-transfer/SKILL.md      instruction · direction · single output
+  character-transfer/SKILL.md  scene · characters · clothes · pose
+  moment/SKILL.md              instruction · before · after
+  refusals/SKILL.md            describe · from words
+```
+
+Changing what a mode does is editing a paragraph, not shipping a build. The
+instruction is prose, and it diffs like prose.
 
 When a model refuses a photograph of real people, the request is not abandoned:
 both images are described in words by a cheaper model and sent again as prose,
-with no photograph attached.
+with no photograph attached — that fallback is `refusals/SKILL.md`.
 
 ## Seven models, one config file
 
